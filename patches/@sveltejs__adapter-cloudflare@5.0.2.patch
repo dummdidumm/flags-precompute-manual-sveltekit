@@ -1,0 +1,458 @@
+diff --git a/files/middleware.js b/files/middleware.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..22e379740baca3211ac5bd0f9911b92f953c3d3f
+--- /dev/null
++++ b/files/middleware.js
+@@ -0,0 +1,34 @@
++import { middleware as user_middleware } from "MIDDLEWARE";
++import { call_middleware } from "CALL_MIDDLEWARE";
++import { app_dir } from "MANIFEST";
++
++// https://developers.cloudflare.com/pages/functions/middleware/
++// https://developers.cloudflare.com/pages/functions/api-reference/#eventcontext
++
++/**
++ * @param {{ request: Request, next: any }} context
++ */
++export default async function middleware({ request, next }) {
++  console.log("running on ", request.url);
++  // TODO customize?
++  if (new URL(request.url).pathname.startsWith(app_dir)) {
++    return next();
++  }
++
++  const result = await call_middleware(request, user_middleware);
++
++  if (result instanceof Response) return result;
++
++  const has_additional_headers =
++    [...result.request_headers.keys()].length > 0 ||
++    [...result.response_headers.keys()].length > 0;
++
++  if (!result.did_reroute && !has_additional_headers) {
++    // Fast path
++    return next();
++  } else {
++    const response = await next(result.request);
++    result.add_response_headers(response);
++    return response;
++  }
++}
+diff --git a/index.js b/index.js
+index e00eb988992933521de8d47dec641d9bb3afa370..c77389f93b1b7cb6267c1240133b5e98ce2eaa8f 100644
+--- a/index.js
++++ b/index.js
+@@ -1,107 +1,153 @@
+-import { existsSync, writeFileSync } from 'node:fs';
+-import * as path from 'node:path';
+-import { fileURLToPath } from 'node:url';
+-import { getPlatformProxy } from 'wrangler';
++import { existsSync, writeFileSync } from "node:fs";
++import * as path from "node:path";
++import { fileURLToPath } from "node:url";
++import { getPlatformProxy } from "wrangler";
+ 
+ /** @type {import('./index.js').default} */
+ export default function (options = {}) {
+-	return {
+-		name: '@sveltejs/adapter-cloudflare',
+-		async adapt(builder) {
+-			if (existsSync('_routes.json')) {
+-				throw new Error(
+-					'Cloudflare routes should be configured in svelte.config.js rather than _routes.json'
+-				);
+-			}
+-
+-			const files = fileURLToPath(new URL('./files', import.meta.url).href);
+-			const dest = builder.getBuildDirectory('cloudflare');
+-			const tmp = builder.getBuildDirectory('cloudflare-tmp');
+-
+-			builder.rimraf(dest);
+-			builder.rimraf(tmp);
+-
+-			builder.mkdirp(dest);
+-			builder.mkdirp(tmp);
+-
+-			// generate plaintext 404.html first which can then be overridden by prerendering, if the user defined such a page
+-			const fallback = path.join(dest, '404.html');
+-			if (options.fallback === 'spa') {
+-				await builder.generateFallback(fallback);
+-			} else {
+-				writeFileSync(fallback, 'Not Found');
+-			}
+-
+-			const dest_dir = `${dest}${builder.config.kit.paths.base}`;
+-			const written_files = builder.writeClient(dest_dir);
+-			builder.writePrerendered(dest_dir);
+-
+-			const relativePath = path.posix.relative(dest, builder.getServerDirectory());
+-
+-			writeFileSync(
+-				`${tmp}/manifest.js`,
+-				`export const manifest = ${builder.generateManifest({ relativePath })};\n\n` +
+-					`export const prerendered = new Set(${JSON.stringify(builder.prerendered.paths)});\n\n` +
+-					`export const base_path = ${JSON.stringify(builder.config.kit.paths.base)};\n`
+-			);
+-
+-			writeFileSync(
+-				`${dest}/_routes.json`,
+-				JSON.stringify(get_routes_json(builder, written_files, options.routes ?? {}), null, '\t')
+-			);
+-
+-			writeFileSync(`${dest}/_headers`, generate_headers(builder.getAppPath()), { flag: 'a' });
+-
+-			if (builder.prerendered.redirects.size > 0) {
+-				writeFileSync(`${dest}/_redirects`, generate_redirects(builder.prerendered.redirects), {
+-					flag: 'a'
+-				});
+-			}
+-
+-			writeFileSync(`${dest}/.assetsignore`, generate_assetsignore(), { flag: 'a' });
+-
+-			builder.copy(`${files}/worker.js`, `${dest}/_worker.js`, {
+-				replace: {
+-					SERVER: `${relativePath}/index.js`,
+-					MANIFEST: `${path.posix.relative(dest, tmp)}/manifest.js`
+-				}
+-			});
+-		},
+-		emulate() {
+-			// we want to invoke `getPlatformProxy` only once, but await it only when it is accessed.
+-			// If we would await it here, it would hang indefinitely because the platform proxy only resolves once a request happens
+-			const get_emulated = async () => {
+-				const proxy = await getPlatformProxy(options.platformProxy);
+-				const platform = /** @type {App.Platform} */ ({
+-					env: proxy.env,
+-					context: proxy.ctx,
+-					caches: proxy.caches,
+-					cf: proxy.cf
+-				});
+-				/** @type {Record<string, any>} */
+-				const env = {};
+-				const prerender_platform = /** @type {App.Platform} */ (/** @type {unknown} */ ({ env }));
+-				for (const key in proxy.env) {
+-					Object.defineProperty(env, key, {
+-						get: () => {
+-							throw new Error(`Cannot access platform.env.${key} in a prerenderable route`);
+-						}
+-					});
+-				}
+-				return { platform, prerender_platform };
+-			};
+-
+-			/** @type {{ platform: App.Platform, prerender_platform: App.Platform }} */
+-			let emulated;
+-
+-			return {
+-				platform: async ({ prerender }) => {
+-					emulated ??= await get_emulated();
+-					return prerender ? emulated.prerender_platform : emulated.platform;
+-				}
+-			};
+-		}
+-	};
++  return {
++    name: "@sveltejs/adapter-cloudflare",
++    async adapt(builder) {
++      if (existsSync("_routes.json")) {
++        throw new Error(
++          "Cloudflare routes should be configured in svelte.config.js rather than _routes.json"
++        );
++      }
++
++      const files = fileURLToPath(new URL("./files", import.meta.url).href);
++      const dest = builder.getBuildDirectory("cloudflare");
++      const tmp = builder.getBuildDirectory("cloudflare-tmp");
++
++      builder.rimraf(dest);
++      builder.rimraf(tmp);
++
++      builder.mkdirp(dest);
++      builder.mkdirp(tmp);
++
++      // generate plaintext 404.html first which can then be overridden by prerendering, if the user defined such a page
++      const fallback = path.join(dest, "404.html");
++      if (options.fallback === "spa") {
++        await builder.generateFallback(fallback);
++      } else {
++        writeFileSync(fallback, "Not Found");
++      }
++
++      const dest_dir = `${dest}${builder.config.kit.paths.base}`;
++      const written_files = builder.writeClient(dest_dir);
++      builder.writePrerendered(dest_dir);
++
++      const relativePath = path.posix.relative(
++        dest,
++        builder.getServerDirectory()
++      );
++
++      writeFileSync(
++        `${tmp}/manifest.js`,
++        `export const manifest = ${builder.generateManifest({
++          relativePath,
++        })};\n\n` +
++          `export const prerendered = new Set(${JSON.stringify(
++            builder.prerendered.paths
++          )});\n\n` +
++          `export const base_path = ${JSON.stringify(
++            builder.config.kit.paths.base
++          )};\n` +
++          `export const app_dir = ${JSON.stringify(
++            builder.config.kit.appDir
++          )};\n`
++      );
++
++      writeFileSync(
++        `${dest}/_routes.json`,
++        JSON.stringify(
++          get_routes_json(builder, written_files, options.routes ?? {}),
++          null,
++          "\t"
++        )
++      );
++
++      writeFileSync(
++        `${dest}/_headers`,
++        generate_headers(builder.getAppPath()),
++        { flag: "a" }
++      );
++
++      if (builder.prerendered.redirects.size > 0) {
++        writeFileSync(
++          `${dest}/_redirects`,
++          generate_redirects(builder.prerendered.redirects),
++          {
++            flag: "a",
++          }
++        );
++      }
++
++      writeFileSync(`${dest}/.assetsignore`, generate_assetsignore(), {
++        flag: "a",
++      });
++
++      builder.copy(`${files}/worker.js`, `${dest}/_worker.js`, {
++        replace: {
++          SERVER: `${relativePath}/index.js`,
++          MANIFEST: `${path.posix.relative(dest, tmp)}/manifest.js`,
++        },
++      });
++
++      builder.log.warn(`${builder.getServerDirectory()}/middleware.js`);
++      if (existsSync(`${builder.getServerDirectory()}/middleware.js`)) {
++        builder.copy(`${files}/middleware.js`, `${dest}/_middleware.js`, {
++          replace: {
++            MIDDLEWARE: `${relativePath}/middleware.js`,
++            CALL_MIDDLEWARE: `${relativePath}/call-middleware.js`,
++            MANIFEST: `${path.posix.relative(dest, tmp)}/manifest.js`,
++          },
++        });
++      }
++    },
++
++    emulate() {
++      // we want to invoke `getPlatformProxy` only once, but await it only when it is accessed.
++      // If we would await it here, it would hang indefinitely because the platform proxy only resolves once a request happens
++      const get_emulated = async () => {
++        const proxy = await getPlatformProxy(options.platformProxy);
++        const platform = /** @type {App.Platform} */ ({
++          env: proxy.env,
++          context: proxy.ctx,
++          caches: proxy.caches,
++          cf: proxy.cf,
++        });
++        /** @type {Record<string, any>} */
++        const env = {};
++        const prerender_platform = /** @type {App.Platform} */ (
++          /** @type {unknown} */ ({ env })
++        );
++        for (const key in proxy.env) {
++          Object.defineProperty(env, key, {
++            get: () => {
++              throw new Error(
++                `Cannot access platform.env.${key} in a prerenderable route`
++              );
++            },
++          });
++        }
++        return { platform, prerender_platform };
++      };
++
++      /** @type {{ platform: App.Platform, prerender_platform: App.Platform }} */
++      let emulated;
++
++      return {
++        platform: async ({ prerender }) => {
++          emulated ??= await get_emulated();
++          return prerender ? emulated.prerender_platform : emulated.platform;
++        },
++      };
++    },
++
++    supports: {
++      middleware: () => true,
++    },
++  };
+ }
+ 
+ /**
+@@ -110,65 +156,74 @@ export default function (options = {}) {
+  * @param {import('./index.js').AdapterOptions['routes']} routes
+  * @returns {import('./index.js').RoutesJSONSpec}
+  */
+-function get_routes_json(builder, assets, { include = ['/*'], exclude = ['<all>'] }) {
+-	if (!Array.isArray(include) || !Array.isArray(exclude)) {
+-		throw new Error('routes.include and routes.exclude must be arrays');
+-	}
+-
+-	if (include.length === 0) {
+-		throw new Error('routes.include must contain at least one route');
+-	}
+-
+-	if (include.length > 100) {
+-		throw new Error('routes.include must contain 100 or fewer routes');
+-	}
+-
+-	exclude = exclude
+-		.flatMap((rule) => (rule === '<all>' ? ['<build>', '<files>', '<prerendered>'] : rule))
+-		.flatMap((rule) => {
+-			if (rule === '<build>') {
+-				return `/${builder.getAppPath()}/*`;
+-			}
+-
+-			if (rule === '<files>') {
+-				return assets
+-					.filter(
+-						(file) =>
+-							!(
+-								file.startsWith(`${builder.config.kit.appDir}/`) ||
+-								file === '_headers' ||
+-								file === '_redirects'
+-							)
+-					)
+-					.map((file) => `${builder.config.kit.paths.base}/${file}`);
+-			}
+-
+-			if (rule === '<prerendered>') {
+-				return builder.prerendered.paths;
+-			}
+-
+-			return rule;
+-		});
+-
+-	const excess = include.length + exclude.length - 100;
+-	if (excess > 0) {
+-		const message = `Function includes/excludes exceeds _routes.json limits (see https://developers.cloudflare.com/pages/platform/functions/routing/#limits). Dropping ${excess} exclude rules — this will cause unnecessary function invocations.`;
+-		builder.log.warn(message);
+-
+-		exclude.length -= excess;
+-	}
+-
+-	return {
+-		version: 1,
+-		description: 'Generated by @sveltejs/adapter-cloudflare',
+-		include,
+-		exclude
+-	};
++function get_routes_json(
++  builder,
++  assets,
++  { include = ["/*"], exclude = ["<all>"] }
++) {
++  if (!Array.isArray(include) || !Array.isArray(exclude)) {
++    throw new Error("routes.include and routes.exclude must be arrays");
++  }
++
++  if (include.length === 0) {
++    throw new Error("routes.include must contain at least one route");
++  }
++
++  if (include.length > 100) {
++    throw new Error("routes.include must contain 100 or fewer routes");
++  }
++
++  exclude = exclude
++    .flatMap((rule) =>
++      rule === "<all>" ? ["<build>", "<files>", "<prerendered>"] : rule
++    )
++    .flatMap((rule) => {
++      if (rule === "<build>") {
++        return [
++          `/${builder.getAppPath()}/immutable/*`,
++          `/${builder.getAppPath()}/version.json`,
++        ];
++      }
++
++      if (rule === "<files>") {
++        return assets
++          .filter(
++            (file) =>
++              !(
++                file.startsWith(`${builder.config.kit.appDir}/`) ||
++                file === "_headers" ||
++                file === "_redirects"
++              )
++          )
++          .map((file) => `${builder.config.kit.paths.base}/${file}`);
++      }
++
++      if (rule === "<prerendered>") {
++        return builder.prerendered.paths;
++      }
++
++      return rule;
++    });
++
++  const excess = include.length + exclude.length - 100;
++  if (excess > 0) {
++    const message = `Function includes/excludes exceeds _routes.json limits (see https://developers.cloudflare.com/pages/platform/functions/routing/#limits). Dropping ${excess} exclude rules — this will cause unnecessary function invocations.`;
++    builder.log.warn(message);
++
++    exclude.length -= excess;
++  }
++
++  return {
++    version: 1,
++    description: "Generated by @sveltejs/adapter-cloudflare",
++    include,
++    exclude,
++  };
+ }
+ 
+ /** @param {string} app_dir */
+ function generate_headers(app_dir) {
+-	return `
++  return `
+ # === START AUTOGENERATED SVELTE IMMUTABLE HEADERS ===
+ /${app_dir}/*
+   X-Robots-Tag: noindex
+@@ -182,12 +237,12 @@ function generate_headers(app_dir) {
+ 
+ /** @param {Map<string, { status: number; location: string }>} redirects */
+ function generate_redirects(redirects) {
+-	const rules = Array.from(
+-		redirects.entries(),
+-		([path, redirect]) => `${path} ${redirect.location} ${redirect.status}`
+-	).join('\n');
++  const rules = Array.from(
++    redirects.entries(),
++    ([path, redirect]) => `${path} ${redirect.location} ${redirect.status}`
++  ).join("\n");
+ 
+-	return `
++  return `
+ # === START AUTOGENERATED SVELTE PRERENDERED REDIRECTS ===
+ ${rules}
+ # === END AUTOGENERATED SVELTE PRERENDERED REDIRECTS ===
+@@ -195,8 +250,8 @@ ${rules}
+ }
+ 
+ function generate_assetsignore() {
+-	// this comes from https://github.com/cloudflare/workers-sdk/blob/main/packages/create-cloudflare/templates-experimental/svelte/templates/static/.assetsignore
+-	return `
++  // this comes from https://github.com/cloudflare/workers-sdk/blob/main/packages/create-cloudflare/templates-experimental/svelte/templates/static/.assetsignore
++  return `
+ _worker.js
+ _routes.json
+ _headers

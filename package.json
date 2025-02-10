@@ -13,7 +13,7 @@
 		"lint": "prettier --check ."
 	},
 	"devDependencies": {
-		"@sveltejs/adapter-netlify": "^4",
+		"@sveltejs/adapter-cloudflare": "^5",
 		"@sveltejs/kit": "^2.17.0",
 		"@sveltejs/vite-plugin-svelte": "^4.0.0",
 		"prettier": "^3.4.2",
@@ -30,7 +30,7 @@
 	"pnpm": {
 		"patchedDependencies": {
 			"@sveltejs/kit@2.17.0": "patches/@sveltejs__kit@2.17.0.patch",
-			"@sveltejs/adapter-netlify@4.4.1": "patches/@sveltejs__adapter-netlify@4.4.1.patch"
+			"@sveltejs/adapter-cloudflare@5.0.2": "patches/@sveltejs__adapter-cloudflare@5.0.2.patch"
 		}
 	}
 }
