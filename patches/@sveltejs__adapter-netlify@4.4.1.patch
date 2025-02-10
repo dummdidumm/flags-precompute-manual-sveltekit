@@ -1,9 +1,9 @@
 diff --git a/files/middleware.js b/files/middleware.js
 new file mode 100644
-index 0000000000000000000000000000000000000000..d1a0374ce855924e850ca6f84020af233115b546
+index 0000000000000000000000000000000000000000..435dd8a4a21337530262a27111ec338acfbd1835
 --- /dev/null
 +++ b/files/middleware.js
-@@ -0,0 +1,27 @@
+@@ -0,0 +1,28 @@
 +import { middleware as user_middleware } from "MIDDLEWARE";
 +import { call_middleware } from "CALL_MIDDLEWARE";
 +
@@ -17,7 +17,8 @@ index 0000000000000000000000000000000000000000..d1a0374ce855924e850ca6f84020af23
 +  if (result instanceof Response) return result;
 +
 +  const has_additional_headers =
-+    result.request_headers.size > 0 || result.response_headers.size > 0;
++    [...result.request_headers.keys()].length > 0 ||
++    [...result.response_headers.keys()].length > 0;
 +
 +  console.log("has_additional_headers", has_additional_headers);
 +  console.log("response_headers", Object.fromEntries(result.response_headers));
