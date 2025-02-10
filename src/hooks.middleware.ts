@@ -1,4 +1,5 @@
 export async function middleware({ cookies, url, reroute }) {
+	console.log('called middleware');
 	if (url.pathname !== '/') return;
 
 	// Retrieve cookies which contain the feature flags.
