@@ -4,6 +4,14 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+patchedDependencies:
+  '@sveltejs/adapter-vercel@5.6.1':
+    hash: shxazble4lhxgo4eyfyozje4u4
+    path: patches/@sveltejs__adapter-vercel@5.6.1.patch
+  '@sveltejs/kit@2.17.0':
+    hash: khulahkcxrqk2kiwskg6amayzi
+    path: patches/@sveltejs__kit@2.17.0.patch
+
 importers:
 
   .:
@@ -11,13 +19,16 @@ importers:
       '@vercel/edge':
         specifier: ^1.2.1
         version: 1.2.1
+      '@vercel/flags':
+        specifier: ^3.1.0
+        version: 3.1.0(@sveltejs/kit@2.17.0(patch_hash=khulahkcxrqk2kiwskg6amayzi)(@sveltejs/vite-plugin-svelte@4.0.4(svelte@5.19.0)(vite@5.4.12))(svelte@5.19.0)(vite@5.4.12))
     devDependencies:
       '@sveltejs/adapter-vercel':
-        specifier: ^5.0.0
-        version: 5.5.3(@sveltejs/kit@2.16.0(@sveltejs/vite-plugin-svelte@4.0.4(svelte@5.19.0)(vite@5.4.12))(svelte@5.19.0)(vite@5.4.12))(rollup@4.31.0)
+        specifier: ^5.6.1
+        version: 5.6.1(patch_hash=shxazble4lhxgo4eyfyozje4u4)(@sveltejs/kit@2.17.0(patch_hash=khulahkcxrqk2kiwskg6amayzi)(@sveltejs/vite-plugin-svelte@4.0.4(svelte@5.19.0)(vite@5.4.12))(svelte@5.19.0)(vite@5.4.12))(rollup@4.31.0)
       '@sveltejs/kit':
-        specifier: ^2.0.0
-        version: 2.16.0(@sveltejs/vite-plugin-svelte@4.0.4(svelte@5.19.0)(vite@5.4.12))(svelte@5.19.0)(vite@5.4.12)
+        specifier: ^2.17.0
+        version: 2.17.0(patch_hash=khulahkcxrqk2kiwskg6amayzi)(@sveltejs/vite-plugin-svelte@4.0.4(svelte@5.19.0)(vite@5.4.12))(svelte@5.19.0)(vite@5.4.12)
       '@sveltejs/vite-plugin-svelte':
         specifier: ^4.0.0
         version: 4.0.4(svelte@5.19.0)(vite@5.4.12)
@@ -45,6 +56,10 @@ packages:
   '@ampproject/remapping@2.3.0':
     resolution: {integrity: sha512-30iZtAPgz+LTIYoeivqYo853f02jBYSd5uGnGpkFV0M3xOt9aN73erkgYAmZU43x4VfqcnLxW9Kpg3R5LC4YYw==}
     engines: {node: '>=6.0.0'}
+
+  '@edge-runtime/cookies@5.0.2':
+    resolution: {integrity: sha512-Sd8LcWpZk/SWEeKGE8LT6gMm5MGfX/wm+GPnh1eBEtCpya3vYqn37wYknwAHw92ONoyyREl1hJwxV/Qx2DWNOg==}
+    engines: {node: '>=16'}
 
   '@esbuild/aix-ppc64@0.21.5':
     resolution: {integrity: sha512-1SDgH6ZSPTlggy1yI6+Dbkiz8xzpHJEVAlF/AM1tHPLsf5STom9rwtjE4hKAF20FfXXNTFqEYXyJNWh1GiZedQ==}
@@ -476,13 +491,13 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@sveltejs/adapter-vercel@5.5.3':
-    resolution: {integrity: sha512-yvHkduNTVK5UMz9/N4EDPLWw+ndlZfTG2uz6kqYXyoQMuSMjqMqJcjdlFnLP3L/S3B6eMOtwEnUcwFYp+o7How==}
+  '@sveltejs/adapter-vercel@5.6.1':
+    resolution: {integrity: sha512-ljeLT7p4VQtO9ux4p7MqSkNv+yMw9LcD0K8hl0TK495DhBbaBwOCx9jcp3+/RqGPzsTvTRJSiPRafIfiCjQqjQ==}
     peerDependencies:
       '@sveltejs/kit': ^2.4.0
 
-  '@sveltejs/kit@2.16.0':
-    resolution: {integrity: sha512-S9i1ZWKqluzoaJ6riYnEdbe+xJluMTMkhABouBa66GaWcAyCjW/jAc0NdJQJ/DXyK1CnP5quBW25e99MNyvLxA==}
+  '@sveltejs/kit@2.17.0':
+    resolution: {integrity: sha512-ziHgZSSMTv3cd3Pd1n0eWJFOgF2T5sdwAYgMufdbDhSq1vNNp/gjtCKpDi9WNGq2oUNEg6ltKT+nTl5hU7wmYQ==}
     engines: {node: '>=18.13'}
     hasBin: true
     peerDependencies:
@@ -513,6 +528,26 @@ packages:
 
   '@vercel/edge@1.2.1':
     resolution: {integrity: sha512-1++yncEyIAi68D3UEOlytYb1IUcIulMWdoSzX2h9LuSeeyR7JtaIgR8DcTQ6+DmYOQn+5MCh6LY+UmK6QBByNA==}
+
+  '@vercel/flags@3.1.0':
+    resolution: {integrity: sha512-TesmMiY9n5oY0BK1jPJhxrqwLf0w54ZYETrp6MSWqC/tqVIpc1E4IQNAUTvZ9OoyMoOqOn+BPRDXDHmKwTWaVA==}
+    peerDependencies:
+      '@opentelemetry/api': ^1.7.0
+      '@sveltejs/kit': '*'
+      next: '*'
+      react: '*'
+      react-dom: '*'
+    peerDependenciesMeta:
+      '@opentelemetry/api':
+        optional: true
+      '@sveltejs/kit':
+        optional: true
+      next:
+        optional: true
+      react:
+        optional: true
+      react-dom:
+        optional: true
 
   '@vercel/nft@0.29.0':
     resolution: {integrity: sha512-LAkWyznNySxZ57ibqEGKnWFPqiRxyLvewFyB9iCHFfMsZlVyiu8MNFbjrGk3eV0vuyim5HzBloqlvSrG4BpZ7g==}
@@ -723,6 +758,9 @@ packages:
 
   jackspeak@3.4.3:
     resolution: {integrity: sha512-OGlZQpz2yfahA/Rd1Y8Cd9SIEsqvXkLVoSw/cgwhnhFMDbsQFeZYoJJ7bIZBS9BcamUW96asq/npPWugM+RQBw==}
+
+  jose@5.9.6:
+    resolution: {integrity: sha512-AMlnetc9+CV9asI19zHmrgS/WYsWUwCn2R7RzlbJWD7F9eWYUTGyBmU9o6PxngtLGOiDGPRu+Uc4fhKzbpteZQ==}
 
   kleur@4.1.5:
     resolution: {integrity: sha512-o+NO+8WrRiQEE4/7nwRJhN1HWpVmJm511pBHUxPLtp0BUISzlBplORYSmTclCnJvQq2tKu/sgl3xVpkc7ZWuQQ==}
@@ -999,6 +1037,8 @@ snapshots:
       '@jridgewell/gen-mapping': 0.3.8
       '@jridgewell/trace-mapping': 0.3.25
 
+  '@edge-runtime/cookies@5.0.2': {}
+
   '@esbuild/aix-ppc64@0.21.5':
     optional: true
 
@@ -1256,9 +1296,9 @@ snapshots:
   '@rollup/rollup-win32-x64-msvc@4.31.0':
     optional: true
 
-  '@sveltejs/adapter-vercel@5.5.3(@sveltejs/kit@2.16.0(@sveltejs/vite-plugin-svelte@4.0.4(svelte@5.19.0)(vite@5.4.12))(svelte@5.19.0)(vite@5.4.12))(rollup@4.31.0)':
+  '@sveltejs/adapter-vercel@5.6.1(patch_hash=shxazble4lhxgo4eyfyozje4u4)(@sveltejs/kit@2.17.0(patch_hash=khulahkcxrqk2kiwskg6amayzi)(@sveltejs/vite-plugin-svelte@4.0.4(svelte@5.19.0)(vite@5.4.12))(svelte@5.19.0)(vite@5.4.12))(rollup@4.31.0)':
     dependencies:
-      '@sveltejs/kit': 2.16.0(@sveltejs/vite-plugin-svelte@4.0.4(svelte@5.19.0)(vite@5.4.12))(svelte@5.19.0)(vite@5.4.12)
+      '@sveltejs/kit': 2.17.0(patch_hash=khulahkcxrqk2kiwskg6amayzi)(@sveltejs/vite-plugin-svelte@4.0.4(svelte@5.19.0)(vite@5.4.12))(svelte@5.19.0)(vite@5.4.12)
       '@vercel/nft': 0.29.0(rollup@4.31.0)
       esbuild: 0.24.2
     transitivePeerDependencies:
@@ -1266,7 +1306,7 @@ snapshots:
       - rollup
       - supports-color
 
-  '@sveltejs/kit@2.16.0(@sveltejs/vite-plugin-svelte@4.0.4(svelte@5.19.0)(vite@5.4.12))(svelte@5.19.0)(vite@5.4.12)':
+  '@sveltejs/kit@2.17.0(patch_hash=khulahkcxrqk2kiwskg6amayzi)(@sveltejs/vite-plugin-svelte@4.0.4(svelte@5.19.0)(vite@5.4.12))(svelte@5.19.0)(vite@5.4.12)':
     dependencies:
       '@sveltejs/vite-plugin-svelte': 4.0.4(svelte@5.19.0)(vite@5.4.12)
       '@types/cookie': 0.6.0
@@ -1310,6 +1350,13 @@ snapshots:
   '@types/estree@1.0.6': {}
 
   '@vercel/edge@1.2.1': {}
+
+  '@vercel/flags@3.1.0(@sveltejs/kit@2.17.0(patch_hash=khulahkcxrqk2kiwskg6amayzi)(@sveltejs/vite-plugin-svelte@4.0.4(svelte@5.19.0)(vite@5.4.12))(svelte@5.19.0)(vite@5.4.12))':
+    dependencies:
+      '@edge-runtime/cookies': 5.0.2
+      jose: 5.9.6
+    optionalDependencies:
+      '@sveltejs/kit': 2.17.0(patch_hash=khulahkcxrqk2kiwskg6amayzi)(@sveltejs/vite-plugin-svelte@4.0.4(svelte@5.19.0)(vite@5.4.12))(svelte@5.19.0)(vite@5.4.12)
 
   '@vercel/nft@0.29.0(rollup@4.31.0)':
     dependencies:
@@ -1544,6 +1591,8 @@ snapshots:
       '@isaacs/cliui': 8.0.2
     optionalDependencies:
       '@pkgjs/parseargs': 0.11.0
+
+  jose@5.9.6: {}
 
   kleur@4.1.5: {}
 

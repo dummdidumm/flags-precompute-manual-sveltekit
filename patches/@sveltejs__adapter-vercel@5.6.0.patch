@@ -1,0 +1,233 @@
+diff --git a/files/edge.js b/files/edge.js
+index 1098fbf3137905d96cdcb2229f7fc8fe923e3367..af09df10354789555e02f332c58033503e16cc4c 100644
+--- a/files/edge.js
++++ b/files/edge.js
+@@ -15,6 +15,14 @@ const initialized = server.init({
+ export default async (request, context) => {
+ 	await initialized;
+ 
++	const pathname = request.headers.get('x-sveltekit-vercel-rewrite');
++	if (pathname) {
++		let url = new URL(request.url);
++		url.pathname = pathname;
++		request = new Request(url, request);
++		request.headers.delete('x-sveltekit-vercel-rewrite');
++	}
++
+ 	return server.respond(request, {
+ 		getClientAddress() {
+ 			return /** @type {string} */ (request.headers.get('x-forwarded-for'));
+diff --git a/files/serverless.js b/files/serverless.js
+index a8f774be94240299e25854cb47364f895c299591..e203f4bd4bdfcc77bb264b84fd13c19afe1f8aa7 100644
+--- a/files/serverless.js
++++ b/files/serverless.js
+@@ -31,6 +31,12 @@ export default async (req, res) => {
+ 			// Optional routes' pathname replacements look like `/foo/$1/bar` which means we could end up with an url like /foo//bar
+ 			pathname = pathname.replace(/\/+/g, '/');
+ 			req.url = `${pathname}${path.endsWith(DATA_SUFFIX) ? DATA_SUFFIX : ''}?${params}`;
++		} else {
++			pathname = /** @type {string | null} */ (req.headers['x-sveltekit-vercel-rewrite']);
++			if (pathname) {
++				req.url = pathname;
++				delete req.headers['x-sveltekit-vercel-rewrite'];
++			}
+ 		}
+ 	}
+ 
+diff --git a/middleware.d.ts b/middleware.d.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..48f71e0e26b1dd40042ca372b253c25437c63179
+--- /dev/null
++++ b/middleware.d.ts
+@@ -0,0 +1,61 @@
++/**
++ * Creates a set of middleware helpers for use in [Edge Middleware](https://vercel.com/docs/functions/edge-middleware).
++ *
++ * ```ts
++ * import { createMiddlewareHelpers } from '@sveltejs/adapter-vercel';
++ *
++ * const { normalizeUrl, matcher } = createMiddlewareHelpers();
++ *
++ * export const config = { matcher };
++ *
++ * export default function middleware(request: Request) {
++ *  const { normalized, rewrite } = normalizeUrl(request.url);
++ *  if (normalized.pathname === '/some-page') {
++ *   return rewrite('/some-other-page');
++ *  }
++ * }
++ * ```
++ *
++ * @param {{ appDir?: string, base?: string }} options
++ */
++export function createMiddlewareHelpers(options?: {
++	/** Corresponds to `kit.appDir` in your `svelte.config.js`; only necessary if you deviated from the default. */
++	appDir?: string;
++	/** Corresponds to `kit.paths.base`; only necessary if you deviated from the default. */
++	base?: string;
++}): {
++	/**
++	 * Use this string to scope the middleware to only run on paths other than immutable assets.
++	 *
++	 * ```ts
++	 * import { createMiddlewareHelpers } from '@sveltejs/adapter-vercel';
++	 *
++	 * const { matcher } = createMiddlewareHelpers();
++	 *
++	 * export const config = { matcher };
++	 * ```
++	 */
++	matcher: string;
++	/**
++	 * Normalizes the incoming URL to remove any differences between direct page hits and
++	 * data or route resolution requests. Returns the `normalized` URL and a `rewrite` function
++	 * that is aware of said differences, and which should be used in place of the `rewrite`
++	 * function from `@vercel/edge`.
++	 *
++	 * ```ts
++	 * import { createMiddlewareHelpers } from '@sveltejs/adapter-vercel';
++	 *
++	 * const { normalizeUrl } = createMiddlewareHelpers();
++	 *
++	 * export default function middleware(request: Request) {
++	 *  const { normalized, rewrite } = normalizeUrl(request.url);
++	 *  if (normalized.pathname === '/some-page') {
++	 *   return rewrite('/some-other-page');
++	 *  }
++	 * }
++	 * ```
++	 *
++	 * @param {string} url The original URL as given by the request
++	 */
++	normalizeUrl(url: string): { normalized: URL; rewrite: typeof import('@vercel/edge').rewrite };
++};
+diff --git a/middleware.js b/middleware.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..246d22624bf60575a37ad4839336b3533c09aa05
+--- /dev/null
++++ b/middleware.js
+@@ -0,0 +1,99 @@
++import { rewrite } from '@vercel/edge';
++
++/**
++ * @type {typeof import('./middleware.js').createMiddlewareHelpers}
++ */
++export function createMiddlewareHelpers({ appDir = '_app', base = '' } = {}) {
++	const matcher = `^(?!${base}/${appDir}/immutable).*`;
++
++	// the following internal helpers are basically a copy-paste of kit/src/runtime/pathname.js
++	const DATA_SUFFIX = '/__data.json';
++	const HTML_DATA_SUFFIX = '.html__data.json';
++
++	/** @param {string} pathname */
++	function has_data_suffix(pathname) {
++		return pathname.endsWith(DATA_SUFFIX) || pathname.endsWith(HTML_DATA_SUFFIX);
++	}
++
++	/** @param {string} pathname */
++	function add_data_suffix(pathname) {
++		if (pathname.endsWith('.html')) return pathname.replace(/\.html$/, HTML_DATA_SUFFIX);
++		return pathname.replace(/\/$/, '') + DATA_SUFFIX;
++	}
++
++	/** @param {string} pathname */
++	function strip_data_suffix(pathname) {
++		if (pathname.endsWith(HTML_DATA_SUFFIX)) {
++			return pathname.slice(0, -HTML_DATA_SUFFIX.length) + '.html';
++		}
++
++		return pathname.slice(0, -DATA_SUFFIX.length);
++	}
++
++	const ROUTE_PREFIX = `${base}/${appDir}/route`;
++
++	/**
++	 * @param {string} pathname
++	 * @returns {boolean}
++	 */
++	function has_resolution_prefix(pathname) {
++		return pathname === `${ROUTE_PREFIX}.js` || pathname.startsWith(`${ROUTE_PREFIX}/`);
++	}
++
++	/**
++	 * Convert a regular URL to a route to send to SvelteKit's server-side route resolution endpoint
++	 * @param {string} pathname
++	 * @returns {string}
++	 */
++	function add_resolution_prefix(pathname) {
++		let normalized = pathname.slice(base.length);
++		if (normalized.endsWith('/')) normalized = normalized.slice(0, -1);
++
++		return `${ROUTE_PREFIX}${normalized}.js`;
++	}
++
++	/**
++	 * @param {string} pathname
++	 * @returns {string}
++	 */
++	function strip_resolution_prefix(pathname) {
++		return base + (pathname.slice(ROUTE_PREFIX.length, -3) || '/');
++	}
++
++	return {
++		matcher,
++		normalizeUrl: (url) => {
++			let normalized = new URL(url);
++
++			const is_route_resolution = has_resolution_prefix(normalized.pathname);
++			const is_data_request = has_data_suffix(normalized.pathname);
++
++			if (is_route_resolution) {
++				normalized.pathname = strip_resolution_prefix(normalized.pathname);
++			} else if (is_data_request) {
++				normalized.pathname = strip_data_suffix(normalized.pathname);
++			}
++
++			return {
++				normalized,
++				rewrite: (destination, init) => {
++					const rewritten = new URL(destination, url);
++
++					if (rewritten.hostname === normalized.hostname) {
++						if (is_route_resolution) {
++							rewritten.pathname = add_resolution_prefix(rewritten.pathname);
++						} else if (is_data_request) {
++							rewritten.pathname = add_data_suffix(rewritten.pathname);
++						}
++
++						init ||= {};
++						init.headers = new Headers(init.headers);
++						init.headers.set('x-sveltekit-vercel-rewrite', rewritten.pathname);
++					}
++
++					return rewrite(rewritten, init);
++				}
++			};
++		}
++	};
++}
+diff --git a/package.json b/package.json
+index 7091bd0a67a5d775da31b0bcf9611e8539b2b68b..972178aba464a540361308f360fc921b786b8a26 100644
+--- a/package.json
++++ b/package.json
+@@ -23,6 +23,10 @@
+       "types": "./index.d.ts",
+       "import": "./index.js"
+     },
++    "./middleware": {
++      "types": "./middleware.js",
++      "import": "./middleware.d.ts"
++    },
+     "./package.json": "./package.json"
+   },
+   "types": "index.d.ts",
+@@ -30,7 +34,9 @@
+     "files",
+     "index.js",
+     "utils.js",
++    "middleware.js",
+     "index.d.ts",
++    "middleware.d.ts",
+     "ambient.d.ts"
+   ],
+   "dependencies": {
