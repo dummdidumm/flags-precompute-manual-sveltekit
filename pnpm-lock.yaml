@@ -6,7 +6,7 @@ settings:
 
 patchedDependencies:
   '@sveltejs/adapter-vercel@5.6.1':
-    hash: shxazble4lhxgo4eyfyozje4u4
+    hash: kl4t27novq5rx35plx3qh3u6zi
     path: patches/@sveltejs__adapter-vercel@5.6.1.patch
   '@sveltejs/kit@2.17.0':
     hash: khulahkcxrqk2kiwskg6amayzi
@@ -25,7 +25,7 @@ importers:
     devDependencies:
       '@sveltejs/adapter-vercel':
         specifier: ^5.6.1
-        version: 5.6.1(patch_hash=shxazble4lhxgo4eyfyozje4u4)(@sveltejs/kit@2.17.0(patch_hash=khulahkcxrqk2kiwskg6amayzi)(@sveltejs/vite-plugin-svelte@4.0.4(svelte@5.19.0)(vite@5.4.12))(svelte@5.19.0)(vite@5.4.12))(rollup@4.31.0)
+        version: 5.6.1(patch_hash=kl4t27novq5rx35plx3qh3u6zi)(@sveltejs/kit@2.17.0(patch_hash=khulahkcxrqk2kiwskg6amayzi)(@sveltejs/vite-plugin-svelte@4.0.4(svelte@5.19.0)(vite@5.4.12))(svelte@5.19.0)(vite@5.4.12))(rollup@4.31.0)
       '@sveltejs/kit':
         specifier: ^2.17.0
         version: 2.17.0(patch_hash=khulahkcxrqk2kiwskg6amayzi)(@sveltejs/vite-plugin-svelte@4.0.4(svelte@5.19.0)(vite@5.4.12))(svelte@5.19.0)(vite@5.4.12)
@@ -1296,7 +1296,7 @@ snapshots:
   '@rollup/rollup-win32-x64-msvc@4.31.0':
     optional: true
 
-  '@sveltejs/adapter-vercel@5.6.1(patch_hash=shxazble4lhxgo4eyfyozje4u4)(@sveltejs/kit@2.17.0(patch_hash=khulahkcxrqk2kiwskg6amayzi)(@sveltejs/vite-plugin-svelte@4.0.4(svelte@5.19.0)(vite@5.4.12))(svelte@5.19.0)(vite@5.4.12))(rollup@4.31.0)':
+  '@sveltejs/adapter-vercel@5.6.1(patch_hash=kl4t27novq5rx35plx3qh3u6zi)(@sveltejs/kit@2.17.0(patch_hash=khulahkcxrqk2kiwskg6amayzi)(@sveltejs/vite-plugin-svelte@4.0.4(svelte@5.19.0)(vite@5.4.12))(svelte@5.19.0)(vite@5.4.12))(rollup@4.31.0)':
     dependencies:
       '@sveltejs/kit': 2.17.0(patch_hash=khulahkcxrqk2kiwskg6amayzi)(@sveltejs/vite-plugin-svelte@4.0.4(svelte@5.19.0)(vite@5.4.12))(svelte@5.19.0)(vite@5.4.12)
       '@vercel/nft': 0.29.0(rollup@4.31.0)

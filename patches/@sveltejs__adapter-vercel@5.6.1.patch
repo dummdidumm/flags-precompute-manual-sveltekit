@@ -55,10 +55,10 @@ index 1098fbf3137905d96cdcb2229f7fc8fe923e3367..b6250d866a0f2d4bce9cd5a76ff42b30
  };
 diff --git a/files/middleware.js b/files/middleware.js
 new file mode 100644
-index 0000000000000000000000000000000000000000..4eab7719c27f06843e9cf18701ef2e47b59b774b
+index 0000000000000000000000000000000000000000..0e9bef584c6acf88ce99a78a1559a5cc4f9787f1
 --- /dev/null
 +++ b/files/middleware.js
-@@ -0,0 +1,32 @@
+@@ -0,0 +1,31 @@
 +import { next, rewrite } from "@vercel/edge";
 +import { middleware as user_middleware } from "MIDDLEWARE";
 +import { call_middleware } from "CALL_MIDDLEWARE";
@@ -66,8 +66,7 @@ index 0000000000000000000000000000000000000000..4eab7719c27f06843e9cf18701ef2e47
 +// TODO allow customization?
 +// TODO base path
 +export const config = {
-+  // @ts-expect-error will be replaced during build
-+  matcher: `^(?!/${APP_DIR}/immutable).*`,
++  matcher: "/subpage*",
 +};
 +
 +/**

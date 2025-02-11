@@ -1,5 +1,9 @@
 import { encrypt, decrypt, reportValue } from '@vercel/flags';
 
+export const config = {
+	matcher: ['/subpage*']
+};
+
 export async function middleware({ cookies, url, reroute }) {
 	if (url.pathname !== '/') return;
 
