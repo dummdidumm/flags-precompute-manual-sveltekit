@@ -13,7 +13,7 @@
 		"lint": "prettier --check ."
 	},
 	"devDependencies": {
-		"@sveltejs/adapter-cloudflare": "^5",
+		"@sveltejs/adapter-cloudflare": "5.0.2",
 		"@sveltejs/kit": "2.17.2",
 		"@sveltejs/vite-plugin-svelte": "^4.0.0",
 		"prettier": "^3.4.2",
