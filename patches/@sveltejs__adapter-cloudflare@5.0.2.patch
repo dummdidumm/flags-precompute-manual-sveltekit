@@ -1,5 +1,5 @@
 diff --git a/files/worker.js b/files/worker.js
-index 3e036257859b6a905255c0879fdf8d2a6c0bc5a3..60c19c03f4cd0546b55919b96f1d793a8da2cb4e 100644
+index 3e036257859b6a905255c0879fdf8d2a6c0bc5a3..4c14651cc12284ac168c88c26e8eeb31ffdb4b96 100644
 --- a/files/worker.js
 +++ b/files/worker.js
 @@ -1,6 +1,7 @@
@@ -99,7 +99,7 @@ index 3e036257859b6a905255c0879fdf8d2a6c0bc5a3..60c19c03f4cd0546b55919b96f1d793a
 +      } else {
 +        req = new Request(input, init);
 +      }
-+      return inner_fetch(request, env, context);
++      return inner_fetch(req, env, context);
 +    };
 +    response = await onRequest({ ...context, request, env, next });
 +    pragma = response.headers.get("cache-control") || "";
