@@ -1,0 +1,854 @@
+diff --git a/src/core/postbuild/analyse.js b/src/core/postbuild/analyse.js
+index 2484aea4831d0bbb60ef134e6b45a2b679465c73..050640f52cbd3f1b3408803f0c29e58c895f3ff0 100644
+--- a/src/core/postbuild/analyse.js
++++ b/src/core/postbuild/analyse.js
+@@ -26,7 +26,8 @@ export default forked(import.meta.url, analyse);
+  *   manifest_path: string;
+  *   manifest_data: import('types').ManifestData;
+  *   server_manifest: import('vite').Manifest;
+- *   tracked_features: Record<string, string[]>;
++ *   tracked_features: Record<string, import('types').TrackedFeature[]>;
++ *   additional_entry_points: import('types').AdditionalEntryPoint[]
+  *   env: Record<string, string>
+  * }} opts
+  */
+@@ -35,6 +36,7 @@ async function analyse({
+ 	manifest_path,
+ 	manifest_data,
+ 	server_manifest,
++	additional_entry_points,
+ 	tracked_features,
+ 	env
+ }) {
+@@ -121,7 +123,7 @@ async function analyse({
+ 		const prerender = page?.prerender ?? endpoint?.prerender;
+ 
+ 		if (prerender !== true) {
+-			for (const feature of list_features(
++			for (const feature of list_route_features(
+ 				route,
+ 				manifest_data,
+ 				server_manifest,
+@@ -129,6 +131,16 @@ async function analyse({
+ 			)) {
+ 				check_feature(route.id, route_config, feature, config.adapter);
+ 			}
++
++			for (const additional of additional_entry_points) {
++				for (const feature of list_features(additional.file, server_manifest, tracked_features)) {
++					if (additional.disallowedFeatures?.includes(feature)) {
++						throw new Error(
++							`Usage of ${feature} (imported directly or indirectly) is not allowed in ${additional.file}`
++						);
++					}
++				}
++			}
+ 		}
+ 
+ 		const page_methods = page?.methods ?? [];
+@@ -213,18 +225,13 @@ function analyse_page(layouts, leaf) {
+ }
+ 
+ /**
+- * @param {import('types').SSRRoute} route
+- * @param {import('types').ManifestData} manifest_data
++ * @param {string} entry
+  * @param {import('vite').Manifest} server_manifest
+- * @param {Record<string, string[]>} tracked_features
++ * @param {Record<string, import('types').TrackedFeature[]>} tracked_features
+  */
+-function list_features(route, manifest_data, server_manifest, tracked_features) {
++function list_features(entry, server_manifest, tracked_features) {
+ 	const features = new Set();
+ 
+-	const route_data = /** @type {import('types').RouteData} */ (
+-		manifest_data.routes.find((r) => r.id === route.id)
+-	);
+-
+ 	/** @param {string} id */
+ 	function visit(id) {
+ 		const chunk = server_manifest[id];
+@@ -243,20 +250,39 @@ function list_features(route, manifest_data, server_manifest, tracked_features)
+ 		}
+ 	}
+ 
++	visit(entry);
++
++	return Array.from(features);
++}
++
++/**
++ * @param {import('types').SSRRoute} route
++ * @param {import('types').ManifestData} manifest_data
++ * @param {import('vite').Manifest} server_manifest
++ * @param {Record<string, import('types').TrackedFeature[]>} tracked_features
++ */
++function list_route_features(route, manifest_data, server_manifest, tracked_features) {
++	const features = [];
++	const route_data = /** @type {import('types').RouteData} */ (
++		manifest_data.routes.find((r) => r.id === route.id)
++	);
++
+ 	let page_node = route_data?.leaf;
+ 	while (page_node) {
+-		if (page_node.server) visit(page_node.server);
++		if (page_node.server) {
++			features.push(...list_features(page_node.server, server_manifest, tracked_features));
++		}
+ 		page_node = page_node.parent ?? null;
+ 	}
+ 
+ 	if (route_data.endpoint) {
+-		visit(route_data.endpoint.file);
++		features.push(...list_features(route_data.endpoint.file, server_manifest, tracked_features));
+ 	}
+ 
+ 	if (manifest_data.hooks.server) {
+ 		// TODO if hooks.server.js imports `read`, it will be in the entry chunk
+ 		// we don't currently account for that case
+-		visit(manifest_data.hooks.server);
++		features.push(...list_features(manifest_data.hooks.server, server_manifest, tracked_features));
+ 	}
+ 
+ 	return Array.from(features);
+diff --git a/src/core/postbuild/prerender.js b/src/core/postbuild/prerender.js
+index 7c84269e3306ceaae789f5f739dd90e3c744239c..bb2da7f452dd56b3034f6d0fe3634e228e1d6e65 100644
+--- a/src/core/postbuild/prerender.js
++++ b/src/core/postbuild/prerender.js
+@@ -117,7 +117,7 @@ async function prerender({ hash, out, manifest_path, metadata, verbose, env }) {
+ 		return { prerendered, prerender_map };
+ 	}
+ 
+-	const emulator = await config.adapter?.emulate?.();
++	const emulator = await config.adapter?.emulate?.({ importFile: (file) => import(file) });
+ 
+ 	/** @type {import('types').Logger} */
+ 	const log = logger({ verbose });
+diff --git a/src/exports/index.js b/src/exports/index.js
+index 3b69f24de40e3c821f88ee7f44014ad806ee8481..abba33237a0677ad261a07ad7543829904512d3c 100644
+--- a/src/exports/index.js
++++ b/src/exports/index.js
+@@ -1,5 +1,13 @@
+ import { HttpError, Redirect, ActionFailure } from '../runtime/control.js';
+ import { BROWSER, DEV } from 'esm-env';
++import {
++	add_data_suffix,
++	add_resolution_suffix,
++	has_data_suffix,
++	has_resolution_suffix,
++	strip_data_suffix,
++	strip_resolution_suffix
++} from '../runtime/pathname.js';
+ 
+ export { VERSION } from '../version.js';
+ 
+@@ -207,3 +215,42 @@ export function fail(status, data) {
+ export function isActionFailure(e) {
+ 	return e instanceof ActionFailure;
+ }
++
++/**
++ * Strips possible SvelteKit-internal suffixes from the URL pathname.
++ * Returns the normalized URL as well as a method for adding the potential suffix back based on a new pathname.
++ * ```js
++ * import { normalizeUrl } from '@sveltejs/kit';
++ *
++ * const { url, denormalize } = normalizeUrl('/blog/post/__data.json');
++ * console.log(url.pathname); // /blog/post
++ * console.log(denormalize('/blog/post/a')); // /blog/post/a/__data.json
++ * ```
++ * @param {URL | string} url
++ * @returns {{ url: URL, denormalize: (pathname?: string) => URL }}
++ */
++export function normalizeUrl(url) {
++	url = new URL(url, 'http://internal');
++
++	const is_route_resolution = has_resolution_suffix(url.pathname);
++	const is_data_request = has_data_suffix(url.pathname);
++
++	if (is_route_resolution) {
++		url.pathname = strip_resolution_suffix(url.pathname);
++	} else if (is_data_request) {
++		url.pathname = strip_data_suffix(url.pathname);
++	}
++
++	return {
++		url,
++		denormalize: (pathname = /** @type {URL} */ (url).pathname) => {
++			url = new URL(pathname, url);
++			if (is_route_resolution) {
++				url.pathname = add_resolution_suffix(url.pathname);
++			} else if (is_data_request) {
++				url.pathname = add_data_suffix(url.pathname);
++			}
++			return url;
++		}
++	};
++}
+diff --git a/src/exports/node/index.js b/src/exports/node/index.js
+index a69b7ae6d906745f9a3a6e2b00f5e7134f4fee77..e0753d673c3cc56917a08c2720c9e14488223274 100644
+--- a/src/exports/node/index.js
++++ b/src/exports/node/index.js
+@@ -96,17 +96,13 @@ function get_raw_body(req, body_size_limit) {
+ }
+ 
+ /**
+- * @param {{
+- *   request: import('http').IncomingMessage;
+- *   base: string;
+- *   bodySizeLimit?: number;
+- * }} options
+- * @returns {Promise<Request>}
++ * Turns the Node request headers into a `Headers` instance
++ * @param {import('http').IncomingMessage} request
++ * @returns {Headers}
+  */
+-// TODO 3.0 make the signature synchronous?
+-// eslint-disable-next-line @typescript-eslint/require-await
+-export async function getRequest({ request, base, bodySizeLimit }) {
++export function getRequestHeaders(request) {
+ 	let headers = /** @type {Record<string, string>} */ (request.headers);
++
+ 	if (request.httpVersionMajor >= 2) {
+ 		// the Request constructor rejects headers with ':' in the name
+ 		headers = Object.assign({}, headers);
+@@ -120,11 +116,25 @@ export async function getRequest({ request, base, bodySizeLimit }) {
+ 		delete headers[':scheme'];
+ 	}
+ 
++	return new Headers(Object.entries(headers));
++}
++
++/**
++ * @param {{
++ *   request: import('http').IncomingMessage;
++ *   base: string;
++ *   bodySizeLimit?: number;
++ * }} options
++ * @returns {Promise<Request>}
++ */
++// TODO 3.0 make the signature synchronous?
++// eslint-disable-next-line @typescript-eslint/require-await
++export async function getRequest({ request, base, bodySizeLimit }) {
+ 	return new Request(base + request.url, {
+ 		// @ts-expect-error
+ 		duplex: 'half',
+ 		method: request.method,
+-		headers: Object.entries(headers),
++		headers: getRequestHeaders(request),
+ 		body:
+ 			request.method === 'GET' || request.method === 'HEAD'
+ 				? undefined
+diff --git a/src/exports/public.d.ts b/src/exports/public.d.ts
+index f25cc225e1949bcd338b7e55bf83f750108a40ab..8993e43a68c2e9937db88f736073a18669d49075 100644
+--- a/src/exports/public.d.ts
++++ b/src/exports/public.d.ts
+@@ -5,6 +5,7 @@ import '../types/ambient.js';
+ import { CompileOptions } from 'svelte/compiler';
+ import {
+ 	AdapterEntry,
++	AdditionalEntryPoint,
+ 	CspDirectives,
+ 	HttpMethod,
+ 	Logger,
+@@ -19,6 +20,7 @@ import {
+ } from '../types/private.js';
+ import { BuildData, SSRNodeLoader, SSRRoute, ValidatedConfig } from 'types';
+ import type { PluginOptions } from '@sveltejs/vite-plugin-svelte';
++import type { IncomingMessage, ServerResponse } from 'node:http';
+ 
+ export { PrerenderOption } from '../types/private.js';
+ 
+@@ -49,7 +51,15 @@ export interface Adapter {
+ 	 * Creates an `Emulator`, which allows the adapter to influence the environment
+ 	 * during dev, build and prerendering
+ 	 */
+-	emulate?: () => MaybePromise<Emulator>;
++	emulate?: (helpers: {
++		/** Allows to import an entry point defined within `additionalEntryPoints` by referencing its name */
++		importEntryPoint: (name: string) => Promise<any>;
++	}) => MaybePromise<Emulator>;
++	/**
++	 * A function that returns additional entry points for Vite to consider during compilation.
++	 * This is useful for adapters that want to generate separate bundles for e.g. middleware.
++	 */
++	additionalEntryPoints?: () => AdditionalEntryPoint[];
+ }
+ 
+ export type LoadProperties<input extends Record<string, any> | void> = input extends void
+@@ -275,6 +285,18 @@ export interface Emulator {
+ 	 * and returns an `App.Platform` object
+ 	 */
+ 	platform?(details: { config: any; prerender: PrerenderOption }): MaybePromise<App.Platform>;
++	/**
++	 * Runs before every request that would hit the SvelteKit runtime and before requests to static assets in dev mode.
++	 * Can be used to replicate middleware behavior in dev mode.
++	 * Implementation notes:
++	 * - `req.url` does not include the base path, but `req.originalUrl` does, and you will have to adjust both in case you want to proxy/rewrite requests.
++	 * - you either have to call `next()` to pass on the request/response, or `res.end()` to finish the request
++	 */
++	beforeRequest?: (
++		req: IncomingMessage & { originalUrl?: string },
++		res: ServerResponse,
++		next: () => void
++	) => MaybePromise<void>;
+ }
+ 
+ export interface KitConfig {
+@@ -1295,12 +1317,25 @@ export interface RouteDefinition<Config = any> {
+ 	config: Config;
+ }
+ 
++/**
++ * Represents the SvelteKit server runtime. Adapters should use this via `${output}/server/index.js` to create a server to send requests to.
++ */
+ export class Server {
+ 	constructor(manifest: SSRManifest);
+ 	init(options: ServerInitOptions): Promise<void>;
+ 	respond(request: Request, options: RequestOptions): Promise<Response>;
+ }
+ 
++/**
++ * Similar to Server#init. Can be used via `${output}/server/init.js` for other entry points that don't start the server but still need to setup the environment.
++ */
++export function initServer(options: {
++	/** Required for `$env/*` to work */
++	env: { env: Record<string, string>; public_prefix: string; private_prefix: string };
++	/** Required for the `read` export from `$app/server` to work */
++	read?: { read: (file: string) => ReadableStream; manifest: SSRManifest };
++}): void;
++
+ export interface ServerInitOptions {
+ 	/** A map of environment variables */
+ 	env: Record<string, string>;
+diff --git a/src/exports/vite/dev/index.js b/src/exports/vite/dev/index.js
+index 39f4ef41e0cd4ab8adabb3cfdb3047a87a98265a..b1aefc3e16b02600dec12c8a7621fa287d5b2d28 100644
+--- a/src/exports/vite/dev/index.js
++++ b/src/exports/vite/dev/index.js
+@@ -39,7 +39,12 @@ export async function dev(vite, vite_config, svelte_config) {
+ 		const context = async_local_storage.getStore();
+ 		if (!context || context.prerender === true) return;
+ 
+-		check_feature(context.event.route.id, context.config, label, svelte_config.kit.adapter);
++		check_feature(
++			context.event.route.id,
++			context.config,
++			/** @type {import('types').TrackedFeature} */ (label),
++			svelte_config.kit.adapter
++		);
+ 	};
+ 
+ 	const fetch = globalThis.fetch;
+@@ -420,7 +425,25 @@ export async function dev(vite, vite_config, svelte_config) {
+ 		return ws_send.apply(vite.ws, args);
+ 	};
+ 
+-	vite.middlewares.use((req, res, next) => {
++	const env = loadEnv(vite_config.mode, svelte_config.kit.env.dir, '');
++	const additional_entry_points = svelte_config.kit.adapter?.additionalEntryPoints?.() ?? [];
++	const emulator = await svelte_config.kit.adapter?.emulate?.({
++		importEntryPoint: (entry) => {
++			const file = additional_entry_points.find((e) => e.name === entry)?.file;
++			if (!file) {
++				throw new Error(
++					`Entry point '${entry}' not found: ` +
++						'Adapters can only import entry points defined previously through additionalEntryPoints'
++				);
++			}
++			return vite.ssrLoadModule(file);
++		}
++	});
++
++	/**
++	 * @param {import('node:http').IncomingMessage} req
++	 */
++	function get_asset_uri(req) {
+ 		const base = `${vite.config.server.https ? 'https' : 'http'}://${
+ 			req.headers[':authority'] || req.headers.host
+ 		}`;
+@@ -433,18 +456,65 @@ export async function dev(vite, vite_config, svelte_config) {
+ 
+ 			if (fs.existsSync(file) && !fs.statSync(file).isDirectory()) {
+ 				if (has_correct_case(file, svelte_config.kit.files.assets)) {
+-					req.url = encodeURI(pathname); // don't need query/hash
+-					asset_server(req, res);
+-					return;
++					return encodeURI(pathname); // don't need query/hash
+ 				}
+ 			}
+ 		}
++	}
+ 
+-		next();
++	// adapter-provided middleware
++	vite.middlewares.use(async (req, res, next) => {
++		if (!emulator?.beforeRequest) return next();
++		if (
++			req.url?.startsWith('/@fs/') ||
++			req.url?.startsWith('/@vite/') ||
++			req.url?.includes('virtual:')
++		) {
++			return next();
++		}
++
++		try {
++			const base = `${vite.config.server.https ? 'https' : 'http'}://${
++				req.headers[':authority'] || req.headers.host
++			}`;
++			const decoded = decodeURI(new URL(base + req.url).pathname); // this can fail when req.url is malformed, hence the early try-catch
++			const file = posixify(path.resolve(decoded.slice(svelte_config.kit.paths.base.length + 1)));
++			const is_file = fs.existsSync(file) && !fs.statSync(file).isDirectory();
++			const is_static_asset = !!get_asset_uri(req);
++
++			if (is_file && !is_static_asset) {
++				return next();
++			}
++
++			// Vite's base middleware strips out the base path. Restore it for the duration of beforeRequest
++			const prev_url = req.url;
++			req.url = req.originalUrl;
++			const _next = () => {
++				if (prev_url !== req.url) {
++					req.originalUrl = req.url;
++					req.url = /** @type {string} */ (req.url).slice(svelte_config.kit.paths.base.length);
++				} else {
++					req.url = prev_url;
++				}
++				return next();
++			};
++			return emulator.beforeRequest(req, res, _next);
++		} catch (e) {
++			const error = coalesce_to_error(e);
++			res.statusCode = 500;
++			res.end(fix_stack_trace(error));
++		}
+ 	});
+ 
+-	const env = loadEnv(vite_config.mode, svelte_config.kit.env.dir, '');
+-	const emulator = await svelte_config.kit.adapter?.emulate?.();
++	vite.middlewares.use((req, res, next) => {
++		const asset_uri = get_asset_uri(req);
++		if (asset_uri) {
++			req.url = asset_uri;
++			return asset_server(req, res);
++		}
++
++		next();
++	});
+ 
+ 	return () => {
+ 		const serve_static_middleware = vite.middlewares.stack.find(
+@@ -465,7 +535,7 @@ export async function dev(vite, vite_config, svelte_config) {
+ 					req.headers[':authority'] || req.headers.host
+ 				}`;
+ 
+-				const decoded = decodeURI(new URL(base + req.url).pathname);
++				const decoded = decodeURI(new URL(base + req.url).pathname); // this can fail when req.url is malformed, hence the early try-catch
+ 				const file = posixify(path.resolve(decoded.slice(svelte_config.kit.paths.base.length + 1)));
+ 				const is_file = fs.existsSync(file) && !fs.statSync(file).isDirectory();
+ 				const allowed =
+diff --git a/src/exports/vite/index.js b/src/exports/vite/index.js
+index 4885d000ec1594440562da44148b4dfdcb7367a1..3ea2b863fef289fae02c9137d02431cebefdb7a0 100644
+--- a/src/exports/vite/index.js
++++ b/src/exports/vite/index.js
+@@ -212,10 +212,13 @@ async function kit({ svelte_config }) {
+ 	/**
+ 	 * A map showing which features (such as `$app/server:read`) are defined
+ 	 * in which chunks, so that we can later determine which routes use which features
+-	 * @type {Record<string, string[]>}
++	 * @type {Record<string, import('types').TrackedFeature[]>}
+ 	 */
+ 	const tracked_features = {};
+ 
++	/** Adapter-provided additional entry points */
++	const additional_entry_points = kit.adapter?.additionalEntryPoints?.() ?? [];
++
+ 	const sourcemapIgnoreList = /** @param {string} relative_path */ (relative_path) =>
+ 		relative_path.includes('node_modules') || relative_path.includes(kit.outDir);
+ 
+@@ -599,8 +602,13 @@ Tips:
+ 
+ 				if (ssr) {
+ 					input.index = `${runtime_directory}/server/index.js`;
++					input.init = `${runtime_directory}/server/init.js`;
+ 					input.internal = `${kit.outDir}/generated/server/internal.js`;
+ 
++					for (const additional of additional_entry_points) {
++						input[additional.name] = additional.file;
++					}
++
+ 					// add entry points for every endpoint...
+ 					manifest_data.routes.forEach((route) => {
+ 						if (route.endpoint) {
+@@ -825,6 +833,7 @@ Tips:
+ 					manifest_data,
+ 					server_manifest,
+ 					tracked_features,
++					additional_entry_points,
+ 					env: { ...env.private, ...env.public }
+ 				});
+ 
+diff --git a/src/exports/vite/preview/index.js b/src/exports/vite/preview/index.js
+index 0342e718c75c9b333c1b6bc0900e1abdfbabf924..6c5acbcfd8d3460268b3d4c648d1cd983c789a25 100644
+--- a/src/exports/vite/preview/index.js
++++ b/src/exports/vite/preview/index.js
+@@ -51,7 +51,9 @@ export async function preview(vite, vite_config, svelte_config) {
+ 		read: (file) => createReadableStream(`${dir}/${file}`)
+ 	});
+ 
+-	const emulator = await svelte_config.kit.adapter?.emulate?.();
++	const emulator = await svelte_config.kit.adapter?.emulate?.({
++		importEntryPoint: (entry) => import(pathToFileURL(join(dir, `${entry}.js`)).href)
++	});
+ 
+ 	return () => {
+ 		// Remove the base middleware. It screws with the URL.
+@@ -66,6 +68,17 @@ export async function preview(vite, vite_config, svelte_config) {
+ 			}
+ 		}
+ 
++		// adapter-provided middleware
++		vite.middlewares.use(async (req, res, next) => {
++			if (!emulator?.beforeRequest) return next();
++
++			const { pathname } = new URL(/** @type {string} */ (req.url), 'http://dummy');
++
++			if (pathname.startsWith(`/${svelte_config.kit.appDir}/immutable`)) return next();
++
++			return emulator.beforeRequest(req, res, next);
++		});
++
+ 		// generated client assets and the contents of `static`
+ 		vite.middlewares.use(
+ 			scoped(
+diff --git a/src/runtime/server/index.js b/src/runtime/server/index.js
+index a2740a8e6aa475376d6017dce94c800287ab378e..b71829279436eb79e549e31c40ae87155afbaf71 100644
+--- a/src/runtime/server/index.js
++++ b/src/runtime/server/index.js
+@@ -1,19 +1,8 @@
+-import { respond } from './respond.js';
+-import { set_private_env, set_public_env, set_safe_public_env } from '../shared-server.js';
+-import { options, get_hooks } from '__SERVER__/internal.js';
++import { get_hooks, options } from '__SERVER__/internal.js';
++import { set_manifest } from '__sveltekit/server';
+ import { DEV } from 'esm-env';
+-import { filter_private_env, filter_public_env } from '../../utils/env.js';
+-import { prerendering } from '__sveltekit/environment';
+-import { set_read_implementation, set_manifest } from '__sveltekit/server';
+-
+-/** @type {ProxyHandler<{ type: 'public' | 'private' }>} */
+-const prerender_env_handler = {
+-	get({ type }, prop) {
+-		throw new Error(
+-			`Cannot read values from $env/dynamic/${type} while prerendering (attempted to read env.${prop.toString()}). Use $env/static/${type} instead`
+-		);
+-	}
+-};
++import { initServer } from './init.js';
++import { respond } from './respond.js';
+ 
+ /** @type {Promise<any>} */
+ let init_promise;
+@@ -40,33 +29,17 @@ export class Server {
+ 	 *   read?: (file: string) => ReadableStream;
+ 	 * }} opts
+ 	 */
+-	async init({ env, read }) {
+-		// Take care: Some adapters may have to call `Server.init` per-request to set env vars,
+-		// so anything that shouldn't be rerun should be wrapped in an `if` block to make sure it hasn't
+-		// been done already.
+-
+-		// set env, in case it's used in initialisation
+-		const prefixes = {
+-			public_prefix: this.#options.env_public_prefix,
+-			private_prefix: this.#options.env_private_prefix
+-		};
+-
+-		const private_env = filter_private_env(env, prefixes);
+-		const public_env = filter_public_env(env, prefixes);
+-
+-		set_private_env(
+-			prerendering ? new Proxy({ type: 'private' }, prerender_env_handler) : private_env
+-		);
+-		set_public_env(
+-			prerendering ? new Proxy({ type: 'public' }, prerender_env_handler) : public_env
+-		);
+-		set_safe_public_env(public_env);
+-
+-		if (read) {
+-			set_read_implementation(read);
+-		}
++	async init(opts) {
++		initServer({
++			env: {
++				private_prefix: options.env_private_prefix,
++				public_prefix: options.env_public_prefix,
++				env: opts.env
++			},
++			read: opts.read && { read: opts.read, manifest: this.#manifest }
++		});
+ 
+-		// During DEV and for some adapters this function might be called in quick succession,
++		// During DEV and for some adapters this function might be called in quick succession (per-request),
+ 		// so we need to make sure we're not invoking this logic (most notably the init hook) multiple times
+ 		await (init_promise ??= (async () => {
+ 			try {
+diff --git a/src/runtime/server/init.js b/src/runtime/server/init.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..6ee07276e10b18a451169af3e7b1ff92073fc6eb
+--- /dev/null
++++ b/src/runtime/server/init.js
+@@ -0,0 +1,42 @@
++import { prerendering } from '__sveltekit/environment';
++import { set_manifest, set_read_implementation } from '__sveltekit/server';
++import { filter_private_env, filter_public_env } from '../../utils/env.js';
++import { set_private_env, set_public_env, set_safe_public_env } from '../shared-server.js';
++
++/**
++ * Separate, more lightweight init in case an adapter entry point doesn't need the whole server
++ * @param {{
++ *   env: { public_prefix: string; private_prefix: string; env: Record<string, string>; };
++ *   read?: { read: (file: string) => ReadableStream; manifest: import('@sveltejs/kit').SSRManifest; };
++ * }} options
++ */
++export function initServer({ env, read }) {
++	// set env, in case it's used in initialisation
++	const prefixes = {
++		public_prefix: env.public_prefix,
++		private_prefix: env.private_prefix
++	};
++
++	const private_env = filter_private_env(env.env, prefixes);
++	const public_env = filter_public_env(env.env, prefixes);
++
++	set_private_env(
++		prerendering ? new Proxy({ type: 'private' }, prerender_env_handler) : private_env
++	);
++	set_public_env(prerendering ? new Proxy({ type: 'public' }, prerender_env_handler) : public_env);
++	set_safe_public_env(public_env);
++
++	if (read) {
++		set_read_implementation(read.read);
++		set_manifest(read.manifest);
++	}
++}
++
++/** @type {ProxyHandler<{ type: 'public' | 'private' }>} */
++const prerender_env_handler = {
++	get({ type }, prop) {
++		throw new Error(
++			`Cannot read values from $env/dynamic/${type} while prerendering (attempted to read env.${prop.toString()}). Use $env/static/${type} instead`
++		);
++	}
++};
+diff --git a/src/types/private.d.ts b/src/types/private.d.ts
+index 0207a8f5f05b002e28e75a77aa8e2b0480c0e709..fdef49337b0e4208e575565c5d0899f8d71e92a4 100644
+--- a/src/types/private.d.ts
++++ b/src/types/private.d.ts
+@@ -155,6 +155,17 @@ export interface Logger {
+ 
+ export type MaybePromise<T> = T | Promise<T>;
+ 
++export type TrackedFeature = '$app/server:read';
++
++export interface AdditionalEntryPoint {
++	/** Unique name of the entry point. Will be written to disk during build at `output/server/<name>.js` */
++	name: string;
++	/** Path relative to the project root of the corresponding file (e.g. `foo.js` means it's at `<project-root>/foo.js`) */
++	file: string;
++	/** Define which features should not be allowed within the entry point (or the files it imports) */
++	disallowedFeatures?: TrackedFeature[];
++}
++
+ export interface Prerendered {
+ 	/**
+ 	 * A map of `path` to `{ file }` objects, where a path like `/foo` corresponds to `foo.html` and a path like `/bar/` corresponds to `bar/index.html`.
+diff --git a/src/utils/features.js b/src/utils/features.js
+index 4a8530d22bbb89ecf276ae1f7ba48522cb0f6111..4184f99f28fd71dd74cb79e315a77d23773defc5 100644
+--- a/src/utils/features.js
++++ b/src/utils/features.js
+@@ -1,7 +1,7 @@
+ /**
+  * @param {string} route_id
+  * @param {any} config
+- * @param {string} feature
++ * @param {import('types').TrackedFeature} feature
+  * @param {import('@sveltejs/kit').Adapter | undefined} adapter
+  */
+ export function check_feature(route_id, config, feature, adapter) {
+diff --git a/src/version.js b/src/version.js
+index 5154fdbae3c6a3839d28d2e571de7f6ab6459b44..d43569b34c313750054189c1232a30755ecb4f93 100644
+--- a/src/version.js
++++ b/src/version.js
+@@ -1,4 +1,4 @@
+ // generated during release, do not modify
+ 
+ /** @type {string} */
+-export const VERSION = '2.17.2';
++export const VERSION = '2.18.0';
+diff --git a/types/index.d.ts b/types/index.d.ts
+index f164abc09c1d681042443cd0270bf856b90c7aef..fac7100faab86f08c963c99fedbdc71abc02b582 100644
+--- a/types/index.d.ts
++++ b/types/index.d.ts
+@@ -4,6 +4,7 @@
+ declare module '@sveltejs/kit' {
+ 	import type { CompileOptions } from 'svelte/compiler';
+ 	import type { PluginOptions } from '@sveltejs/vite-plugin-svelte';
++	import type { IncomingMessage, ServerResponse } from 'node:http';
+ 	/**
+ 	 * [Adapters](https://svelte.dev/docs/kit/adapters) are responsible for taking the production build and turning it into something that can be deployed to a platform of your choosing.
+ 	 */
+@@ -31,7 +32,15 @@ declare module '@sveltejs/kit' {
+ 		 * Creates an `Emulator`, which allows the adapter to influence the environment
+ 		 * during dev, build and prerendering
+ 		 */
+-		emulate?: () => MaybePromise<Emulator>;
++		emulate?: (helpers: {
++			/** Allows to import an entry point defined within `additionalEntryPoints` by referencing its name */
++			importEntryPoint: (name: string) => Promise<any>;
++		}) => MaybePromise<Emulator>;
++		/**
++		 * A function that returns additional entry points for Vite to consider during compilation.
++		 * This is useful for adapters that want to generate separate bundles for e.g. middleware.
++		 */
++		additionalEntryPoints?: () => AdditionalEntryPoint[];
+ 	}
+ 
+ 	export type LoadProperties<input extends Record<string, any> | void> = input extends void
+@@ -257,6 +266,18 @@ declare module '@sveltejs/kit' {
+ 		 * and returns an `App.Platform` object
+ 		 */
+ 		platform?(details: { config: any; prerender: PrerenderOption }): MaybePromise<App.Platform>;
++		/**
++		 * Runs before every request that would hit the SvelteKit runtime and before requests to static assets in dev mode.
++		 * Can be used to replicate middleware behavior in dev mode.
++		 * Implementation notes:
++		 * - `req.url` does not include the base path, but `req.originalUrl` does, and you will have to adjust both in case you want to proxy/rewrite requests.
++		 * - you either have to call `next()` to pass on the request/response, or `res.end()` to finish the request
++		 */
++		beforeRequest?: (
++			req: IncomingMessage & { originalUrl?: string },
++			res: ServerResponse,
++			next: () => void
++		) => MaybePromise<void>;
+ 	}
+ 
+ 	export interface KitConfig {
+@@ -1277,12 +1298,25 @@ declare module '@sveltejs/kit' {
+ 		config: Config;
+ 	}
+ 
++	/**
++	 * Represents the SvelteKit server runtime. Adapters should use this via `${output}/server/index.js` to create a server to send requests to.
++	 */
+ 	export class Server {
+ 		constructor(manifest: SSRManifest);
+ 		init(options: ServerInitOptions): Promise<void>;
+ 		respond(request: Request, options: RequestOptions): Promise<Response>;
+ 	}
+ 
++	/**
++	 * Similar to Server#init. Can be used via `${output}/server/init.js` for other entry points that don't start the server but still need to setup the environment.
++	 */
++	export function initServer(options: {
++		/** Required for `$env/*` to work */
++		env: { env: Record<string, string>; public_prefix: string; private_prefix: string };
++		/** Required for the `read` export from `$app/server` to work */
++		read?: { read: (file: string) => ReadableStream; manifest: SSRManifest };
++	}): void;
++
+ 	export interface ServerInitOptions {
+ 		/** A map of environment variables */
+ 		env: Record<string, string>;
+@@ -1627,6 +1661,17 @@ declare module '@sveltejs/kit' {
+ 
+ 	type MaybePromise<T> = T | Promise<T>;
+ 
++	type TrackedFeature = '$app/server:read';
++
++	interface AdditionalEntryPoint {
++		/** Unique name of the entry point. Will be written to disk during build at `output/server/<name>.js` */
++		name: string;
++		/** Path relative to the project root of the corresponding file (e.g. `foo.js` means it's at `<project-root>/foo.js`) */
++		file: string;
++		/** Define which features should not be allowed within the entry point (or the files it imports) */
++		disallowedFeatures?: TrackedFeature[];
++	}
++
+ 	interface Prerendered {
+ 		/**
+ 		 * A map of `path` to `{ file }` objects, where a path like `/foo` corresponds to `foo.html` and a path like `/bar/` corresponds to `bar/index.html`.
+@@ -1996,6 +2041,21 @@ declare module '@sveltejs/kit' {
+ 	 * @param e The object to check.
+ 	 * */
+ 	export function isActionFailure(e: unknown): e is ActionFailure;
++	/**
++	 * Strips possible SvelteKit-internal suffixes from the URL pathname.
++	 * Returns the normalized URL as well as a method for adding the potential suffix back based on a new pathname.
++	 * ```js
++	 * import { normalizeUrl } from '@sveltejs/kit';
++	 *
++	 * const { url, denormalize } = normalizeUrl('/blog/post/__data.json');
++	 * console.log(url.pathname); // /blog/post
++	 * console.log(denormalize('/blog/post/a')); // /blog/post/a/__data.json
++	 * ```
++	 * */
++	export function normalizeUrl(url: URL | string): {
++		url: URL;
++		denormalize: (pathname?: string) => URL;
++	};
+ 	export type LessThan<TNumber extends number, TArray extends any[] = []> = TNumber extends TArray["length"] ? TArray[number] : LessThan<TNumber, [...TArray, TArray["length"]]>;
+ 	export type NumericRange<TStart extends number, TEnd extends number> = Exclude<TEnd | LessThan<TEnd>, LessThan<TStart>>;
+ 	export const VERSION: string;
+@@ -2095,6 +2155,11 @@ declare module '@sveltejs/kit/hooks' {
+ }
+ 
+ declare module '@sveltejs/kit/node' {
++	/**
++	 * Turns the Node request headers into a `Headers` instance
++	 * */
++	export function getRequestHeaders(request: import("http").IncomingMessage): Headers;
++
+ 	export function getRequest({ request, base, bodySizeLimit }: {
+ 		request: import("http").IncomingMessage;
+ 		base: string;
+diff --git a/types/index.d.ts.map b/types/index.d.ts.map
+index f89c99f5274ecddf5c8949a4ff36cfec96453438..2d9ddee38cae9532f602db0e4bf4a46a40f777cc 100644
+--- a/types/index.d.ts.map
++++ b/types/index.d.ts.map
+@@ -36,6 +36,7 @@
+ 		"ResolveOptions",
+ 		"RouteDefinition",
+ 		"Server",
++		"initServer",
+ 		"ServerInitOptions",
+ 		"SSRManifest",
+ 		"ServerLoad",
+@@ -53,6 +54,8 @@
+ 		"HttpMethod",
+ 		"Logger",
+ 		"MaybePromise",
++		"TrackedFeature",
++		"AdditionalEntryPoint",
+ 		"Prerendered",
+ 		"PrerenderHttpErrorHandler",
+ 		"PrerenderMissingIdHandler",
+@@ -88,8 +91,10 @@
+ 		"json",
+ 		"text",
+ 		"isActionFailure",
++		"normalizeUrl",
+ 		"VERSION",
+ 		"sequence",
++		"getRequestHeaders",
+ 		"getRequest",
+ 		"setResponse",
+ 		"createReadableStream",
+@@ -160,6 +165,6 @@
+ 		null,
+ 		null
+ 	],
+-	"mappings": "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",
++	"mappings": "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",
+ 	"ignoreList": []
+ }
