@@ -16,10 +16,13 @@ export async function onRequest({ request, next }) {
 
 	// Get destination URL based on the feature flag
 	request = new Request(denormalize(flag === 'a' ? '/home-a' : '/home-b'), request);
-	// Set a cookie to remember the feature flags for this visitor
-	request.headers.set('Set-Cookie', `flags=${flag}; Path=/`);
 
-	return next(request);
+	const response = await next(request);
+
+	// Set a cookie to remember the feature flags for this visitor
+	response.headers.set('Set-Cookie', `flags=${flag}; Path=/`);
+
+	return response;
 }
 
 function split_cookies(cookies: string) {
