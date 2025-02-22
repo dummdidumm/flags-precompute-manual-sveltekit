@@ -1,9 +1,7 @@
-import { normalizeUrl } from '@sveltejs/kit';
-
 export async function onRequest({ request, next }) {
 	if (request.url.includes('/middleware')) return new Response('Hello from middleware!');
 
-	const { url, denormalize } = normalizeUrl(request.url);
+	const url = new URL(request.url);
 
 	console.log('hi there!', url.pathname);
 	if (url.pathname !== '/') return next();
@@ -15,7 +13,7 @@ export async function onRequest({ request, next }) {
 	flag ||= Math.random() > 0.5 ? 'a' : 'b';
 
 	// Get destination URL based on the feature flag
-	request = new Request(denormalize(flag === 'a' ? '/home-a' : '/home-b'), request);
+	request = new Request(flag === 'a' ? '/home-a' : '/home-b', request);
 
 	const response = await next(request);
 
