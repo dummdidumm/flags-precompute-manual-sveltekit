@@ -14,7 +14,7 @@
 	},
 	"devDependencies": {
 		"@sveltejs/adapter-netlify": "^4",
-		"@sveltejs/kit": "^2.17.0",
+		"@sveltejs/kit": "^2.17.2",
 		"@sveltejs/vite-plugin-svelte": "^4.0.0",
 		"prettier": "^3.4.2",
 		"prettier-plugin-svelte": "^3.3.3",
@@ -29,8 +29,8 @@
 	},
 	"pnpm": {
 		"patchedDependencies": {
-			"@sveltejs/kit@2.17.0": "patches/@sveltejs__kit@2.17.0.patch",
-			"@sveltejs/adapter-netlify@4.4.1": "patches/@sveltejs__adapter-netlify@4.4.1.patch"
+			"@sveltejs/adapter-netlify@4.4.1": "patches/@sveltejs__adapter-netlify@4.4.1.patch",
+			"@sveltejs/kit@2.17.2": "patches/@sveltejs__kit@2.17.2.patch"
 		}
 	}
 }
