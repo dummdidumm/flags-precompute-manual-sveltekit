@@ -27,10 +27,13 @@
 		"@vercel/edge": "^1.2.1",
 		"@vercel/flags": "^3.1.0"
 	},
+	"engines": {
+		"pnpm": "^9.0.0"
+	},
 	"pnpm": {
 		"patchedDependencies": {
-			"@sveltejs/adapter-netlify@4.4.1": "patches/@sveltejs__adapter-netlify@4.4.1.patch",
-			"@sveltejs/kit@2.17.2": "patches/@sveltejs__kit@2.17.2.patch"
+			"@sveltejs/kit@2.17.2": "patches/@sveltejs__kit@2.17.2.patch",
+			"@sveltejs/adapter-netlify@4.4.1": "patches/@sveltejs__adapter-netlify@4.4.1.patch"
 		}
 	}
 }
