@@ -13,8 +13,8 @@
 		"lint": "prettier --check ."
 	},
 	"devDependencies": {
-		"@sveltejs/adapter-netlify": "^4",
-		"@sveltejs/kit": "^2.17.2",
+		"@sveltejs/adapter-netlify": "4.4.1",
+		"@sveltejs/kit": "2.17.2",
 		"@sveltejs/vite-plugin-svelte": "^4.0.0",
 		"prettier": "^3.4.2",
 		"prettier-plugin-svelte": "^3.3.3",
