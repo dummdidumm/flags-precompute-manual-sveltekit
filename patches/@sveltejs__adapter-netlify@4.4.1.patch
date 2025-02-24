@@ -50,10 +50,15 @@ index 0000000000000000000000000000000000000000..894df7d9770232746616de97ad4a6f31
 +	}
 +}
 diff --git a/index.js b/index.js
-index 034acd70ab94405d83f203bd4f9fafd197cb7222..1f8e4fc246723432ba7ee7eb76315ca1504ce4cb 100644
+index 034acd70ab94405d83f203bd4f9fafd197cb7222..9d88d6f1381478116e2b7b68ab0c526a486b3dfd 100644
 --- a/index.js
 +++ b/index.js
-@@ -5,6 +5,9 @@ import { builtinModules } from 'node:module';
+@@ -1,10 +1,13 @@
+ import { appendFileSync, existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+ import { dirname, join, resolve, posix } from 'node:path';
+-import { fileURLToPath } from 'node:url';
++import { fileURLToPath, pathToFileURL } from 'node:url';
+ import { builtinModules } from 'node:module';
  import process from 'node:process';
  import esbuild from 'esbuild';
  import toml from '@iarna/toml';
@@ -209,7 +214,7 @@ index 034acd70ab94405d83f203bd4f9fafd197cb7222..1f8e4fc246723432ba7ee7eb76315ca1
  	const relativePath = posix.relative(tmp, builder.getServerDirectory());
  
  	builder.copy(`${files}/edge.js`, `${tmp}/entry.js`, {
-@@ -136,51 +251,70 @@ async function generate_edge_functions({ builder }) {
+@@ -136,51 +251,86 @@ async function generate_edge_functions({ builder }) {
  		}
  	});
  
@@ -248,6 +253,7 @@ index 034acd70ab94405d83f203bd4f9fafd197cb7222..1f8e4fc246723432ba7ee7eb76315ca1
 +		name: 'render',
 +		path: '/*',
 +		excludedPath: [
++			`/${builder.getAppPath()}/*`, // Contains static files
 +			...builder.prerendered.paths,
 +			...Array.from(assets).flatMap((asset) => {
 +				if (asset.endsWith('/index.html')) {
@@ -289,6 +295,25 @@ index 034acd70ab94405d83f203bd4f9fafd197cb7222..1f8e4fc246723432ba7ee7eb76315ca1
 +
 +	const relativePath = posix.relative(tmp, builder.getServerDirectory());
 +
++	let pattern = `/((?!${builder.getAppPath()}/|favicon.ico|favicon.png).*)`;
++
++	try {
++		const file_path = pathToFileURL(
++			`${builder.getServerDirectory()}/adapter/edge-middleware.js`
++		).href;
++		const { config } = await import(file_path);
++		if (config?.pattern) pattern = config.pattern;
++	} catch (e) {
++		// Don't bother showing the error if we know there's no config object
++		const text = readFileSync(middleware_path, 'utf-8');
++		if (text.includes('config') || text.includes('export *')) {
++			builder.log.error(
++				'Failed to import middleware. Make sure it is loadable during build, which is necessary to analyze the config object.'
++			);
++			throw e;
++		}
++	}
++
 +	builder.copy(`${files}/middleware.js`, `${tmp}/entry.js`, {
 +		replace: {
 +			SERVER_INIT: `${relativePath}/init.js`,
@@ -296,27 +321,23 @@ index 034acd70ab94405d83f203bd4f9fafd197cb7222..1f8e4fc246723432ba7ee7eb76315ca1
 +		}
 +	});
 +
-+	await bundle_edge_function({ builder, name: 'edge-middleware', path: '/*', excludedPath: [] });
++	await bundle_edge_function({ builder, name: 'edge-middleware', pattern });
 +}
 +
 +/**
-+ * @param {object} params
-+ * @param {import('@sveltejs/kit').Builder} params.builder
-+ * @param {string} params.name
-+ * @param {string} params.path
-+ * @param {string[]} params.excludedPath
++ * @param {{ builder: import('@sveltejs/kit').Builder; name: string; } & ({ path: string; excludedPath: string[] } | { pattern: string })} params
 + */
-+async function bundle_edge_function({ builder, name, path, excludedPath }) {
-+	const tmp = builder.getBuildDirectory('netlify-tmp');
++async function bundle_edge_function(params) {
++	const tmp = params.builder.getBuildDirectory('netlify-tmp');
  
  	await esbuild.build({
  		entryPoints: [`${tmp}/entry.js`],
 -		outfile: '.netlify/edge-functions/render.js',
-+		outfile: `.netlify/edge-functions/${name}.js`,
++		outfile: `.netlify/edge-functions/${params.name}.js`,
  		bundle: true,
  		format: 'esm',
  		platform: 'browser',
-@@ -200,8 +334,32 @@ async function generate_edge_functions({ builder }) {
+@@ -200,8 +350,35 @@ async function generate_edge_functions({ builder }) {
  		alias: Object.fromEntries(builtinModules.map((id) => [id, `node:${id}`]))
  	});
  
@@ -326,19 +347,22 @@ index 034acd70ab94405d83f203bd4f9fafd197cb7222..1f8e4fc246723432ba7ee7eb76315ca1
 +			...(existsSync('.netlify/edge-functions/manifest.json')
 +				? JSON.parse(readFileSync('.netlify/edge-functions/manifest.json', 'utf-8')).functions
 +				: []),
-+			{
-+				function: name,
-+				path,
-+				// We only need to specify paths without the trailing slash because
-+				// Netlify will handle the optional trailing slash for us
-+				excludedPath: [
-+					// Contains static files
-+					`/${builder.getAppPath()}/*`,
-+					...excludedPath,
-+					// Should not be served by SvelteKit at all
-+					'/.netlify/*'
-+				]
-+			}
++			'pattern' in params
++				? {
++						function: params.name,
++						pattern: params.pattern
++					}
++				: {
++						function: params.name,
++						path: params.path,
++						// We only need to specify paths without the trailing slash because
++						// Netlify will handle the optional trailing slash for us
++						excludedPath: [
++							...params.excludedPath,
++							// Should not be served by SvelteKit at all
++							'/.netlify/*'
++						]
++					}
 +		],
 +		version: 1
 +	};

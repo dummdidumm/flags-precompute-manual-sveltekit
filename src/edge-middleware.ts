@@ -1,5 +1,6 @@
 export default async function middleware(request, { next, cookies }) {
 	const url = new URL(request.url);
+	console.log('invoked', url.pathname);
 
 	if (url.pathname !== '/') return next();
 
