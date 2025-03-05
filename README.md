@@ -2,6 +2,10 @@
 
 This repository shows how to manually implement feature flags on Vercel for pages that are ISR'd using SvelteKit.
 
+Prerequisites:
+
+This example uses Vercel flags to en/decrypt feature flags. Make sure to have `FLAGS_SECRET` setup in your Vercel project and pull it to an `.env` file so you can work with it locally aswell. (Alternatively if that's none of your concern, you can remove that logic and no longer need that env variable).
+
 Flow:
 
 1. Request comes to `middleware.ts`. A flag cookie is looked up to see what value it is. For first time visitors the value is computed randomly.
