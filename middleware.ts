@@ -37,5 +37,3 @@ export default async function middleware(request: Request) {
 		}
 	);
 }
-
-// x-sveltekit-vercel-rewrite
