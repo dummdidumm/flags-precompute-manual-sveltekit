@@ -8,4 +8,4 @@ Flow:
 2. Based on the cookie value and the URL a rewrite is determined (in this example, `/` goes either to `/home-a` or `/home-b`)
 3. Request comes to ISR'd SvelteKit page, serving either `/home-a` or `/home-b`
 4. Flag cookie is sent along with the response (it's set in `middleware.ts`, so ISR/SvelteKit itself never sees it, which is important), so revisiting user gets the same flag value
-5. On client side navigation changes, SvelteKit's `reroute` hook in `hooks.ts` is invoked, also reading from that cookie to determine where to go to when navigating to `/`
+5. On the client, we make use of async `reroute` to request a server endpoint we created (that is not prerendered or ISR'd) which determines the route for us (using similar logic to that in `middleware.ts`)
