@@ -2,12 +2,17 @@ import { next, rewrite } from '@vercel/edge';
 import { parse } from 'cookie';
 import { normalizeUrl } from '@sveltejs/kit';
 import { encrypt, decrypt, reportValue } from '@vercel/flags';
+import { decide } from './routing-table';
 
 export const config = {
 	// Either run middleware on all but the internal asset paths ...
 	// matcher: '/((?!_app/|favicon.ico|favicon.png).*)'
 	// ... or only run it where you actually need it.
-	matcher: '/'
+	matcher: [
+		'/'
+		// add more paths here if you want to run A/B tests on other pages, e.g.
+		// '/marketing'
+	]
 };
 
 export default async function middleware(request: Request) {
@@ -32,7 +37,7 @@ export default async function middleware(request: Request) {
 
 	return rewrite(
 		// Get destination URL based on the feature flag
-		denormalize(flags.homePageVariant === 'a' ? '/home-a' : '/home-b'),
+		denormalize(decide(url.pathname, flags)),
 		{
 			headers: flagUnset
 				? {
