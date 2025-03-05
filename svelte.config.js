@@ -8,13 +8,7 @@ const config = {
 	preprocess: vitePreprocess(),
 
 	kit: {
-		adapter: adapter(),
-		paths: { relative: false },
-		router: {
-			// By using server-side route resolution we're making sure that every navigation first goes through the
-			// backend to check where to go to, which gives us the ability to intercept these in middleware.
-			resolution: 'server'
-		}
+		adapter: adapter()
 	}
 };
 
