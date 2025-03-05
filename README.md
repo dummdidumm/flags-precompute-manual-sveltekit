@@ -2,6 +2,8 @@
 
 This repository shows how to manually implement feature flags on Vercel for pages that are ISR'd using SvelteKit.
 
+Deployed example: https://flags-precompute-manual-sveltekit.vercel.app/
+
 Prerequisites:
 
 This example uses Vercel flags to en/decrypt feature flags. Make sure to have `FLAGS_SECRET` setup in your Vercel project and pull it to an `.env` file so you can work with it locally aswell. (Alternatively if that's none of your concern, you can remove that logic and no longer need that env variable).
