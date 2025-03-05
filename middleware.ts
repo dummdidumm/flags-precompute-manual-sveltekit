@@ -20,8 +20,12 @@ export default async function middleware(request: Request) {
 	const flags =
 		(await decrypt<Record<string, any>>(parse(request.headers.get('cookie') ?? '').flags)) ?? {};
 
-	// Fall back to random value if this is a new visitor
-	flags.homePageVariant ||= Math.random() > 0.5 ? 'a' : 'b';
+	const flagUnset = !('homePageVariant' in flags);
+
+	if (flagUnset) {
+		// Fall back to random value if this is a new visitor
+		flags.homePageVariant = Math.random() > 0.5 ? 'a' : 'b';
+	}
 
 	// Report value for integration with Vercels logging etc
 	reportValue('homePageVariant', flags.homePageVariant);
@@ -30,10 +34,12 @@ export default async function middleware(request: Request) {
 		// Get destination URL based on the feature flag
 		denormalize(flags.homePageVariant === 'a' ? '/home-a' : '/home-b'),
 		{
-			headers: {
-				// Set a cookie to remember the feature flags for this visitor
-				'Set-Cookie': `flags=${encrypt(flags)}; Path=/`
-			}
+			headers: flagUnset
+				? {
+						// Set a cookie to remember the feature flags for this visitor
+						'Set-Cookie': `flags=${await encrypt(flags)}; Path=/`
+					}
+				: undefined
 		}
 	);
 }
